@@ -223,10 +223,10 @@ with tab1:
     st.markdown("Enter your data to receive a personalized job recommendation and preparation plan.")
 
     with st.form("career_coach_form"):
-        student_name = st.text_input("Name", value="Piquet Thengtrirat")
-        academics = st.text_area("Academic Performance/Major", value="Computer Science, 3.8 GPA")
-        courses = st.text_area("Relevant Courses/Skills", value="Python, SQL, Git, Data Structures, Algorithms, no Cloud experience")
-        interests = st.text_area("Personal Interests/Goals", value="I enjoy solving puzzles and building automation scripts.")
+        student_name = st.text_input("Name", value="", placeholder="e.g., Jane Doe")
+        academics = st.text_area("Academic Performance/Major", value="", placeholder="e.g., Computer Science Major, 3.8 GPA, relevant certifications")
+        courses = st.text_area("Relevant Courses/Skills", value="", placeholder="List all relevant programming languages, software, and tools (e.g., Python, SQL, Tableau, Figma), or other skills (e.g. financial modeling, financial statement analysis, accounting")
+        interests = st.text_area("Personal Interests/Goals", value="", placeholder="What motivates you? e.g., Solving puzzles, building automation scripts, financial modeling")
         submitted = st.form_submit_button("Get My Personalized Plan")
 
     if submitted:
@@ -451,4 +451,5 @@ with tab3: # Existing Chat Tab
             # Add assistant response to history and display
             st.session_state["chat_history"].append({"role": "assistant", "content": response})
             with st.chat_message("assistant"):
+
                 st.markdown(response)
