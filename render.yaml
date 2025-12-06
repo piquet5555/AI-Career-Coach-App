@@ -1,0 +1,21 @@
+# render.yaml
+
+# This tells Render to apply the configuration to the 'web' service type.
+services:
+- type: web
+  name: ai-career-coach-app
+  # This command installs system dependencies needed by the headless browser (Selenium)
+  plan: starter
+  buildCommand: |
+    apt-get update && apt-get install -yq --no-install-recommends \
+        chromium \
+        libnss3 \
+        libgconf-2-4 \
+        libasound2 \
+        libatk1.0-0 \
+        libgtk-3-0 \
+        libgdk-pixbuf2.0-0 \
+        libglib2.0-0 \
+        libxkbcommon-x11-0 && \
+    pip install -r requirements.txt
+  startCommand: python app.py
