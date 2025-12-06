@@ -1,5 +1,5 @@
 # ==============================================================================
-# 2. PERMANENT FIX: Dependencies are installed externally (Cell 1)
+# ARCHITECTURE: Dependencies are installed by the deployment host (Render)
 # ==============================================================================
 
 # --- IMPORTS ---
@@ -14,13 +14,21 @@ from docx import Document
 
 # Imports for CrewAI and LangChain components
 from crewai import Agent, Task, Crew, Process
-from crewai_tools import RagTool, BaseTool # Removed SerperDevTool as it's not strictly needed here
+from crewai_tools import RagTool, BaseTool 
 from langchain_core.tools import BaseTool
 from langchain_openai import ChatOpenAI
 from textwrap import dedent
 from pydantic import BaseModel, Field
-import requests
-from bs4 import BeautifulSoup
+
+# --- NEW SELENIUM IMPORTS for Robust Scraping ---
+from selenium import webdriver
+from selenium.webdriver.chrome.service import Service
+from selenium.webdriver.common.by import By
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+from webdriver_manager.chrome import ChromeDriverManager
+# -----------------------------
+
 
 # --- 1. CONFIGURATION AND TOOL DEFINITIONS ---
 
@@ -78,36 +86,53 @@ class ResumeReaderTool(BaseTool):
 resume_reader_tool = ResumeReaderTool()
 
 
-# --- Job Description Scraper Tool ---
+# --- Job Description Scraper Tool (Rewritten with Selenium) ---
 class JobDescriptionScraper(BaseTool):
     name: str = "Job Description Scraper"
-    description: str = "Tool for fetching and cleaning the text content of a job posting URL."
-
+    description: str = "Tool for fetching and cleaning the text content of a job posting URL (handles JavaScript-rendered content)."
+    
     def _run(self, url: str) -> str:
-        """Fetches and cleans text from a given URL."""
-        if not url.startswith(('http://', 'https://')):
-            url = 'https://' + url
-
+        """Fetches and cleans text from a given URL using a headless browser."""
+        
+        # 1. Setup Chrome Options for Headless/Render Deployment
+        options = webdriver.ChromeOptions()
+        options.add_argument('--headless')
+        options.add_argument('--no-sandbox')
+        options.add_argument('--disable-dev-shm-usage')
+        options.add_argument('--log-level=3')
+        
+        # 2. Initialize the WebDriver (Automatically manages the driver binary)
         try:
-            headers = {'User-Agent': 'Mozilla/5.0'}
-            response = requests.get(url, headers=headers, timeout=10)
-            response.raise_for_status() # Raise exception for bad status codes
-
-            soup = BeautifulSoup(response.content, 'html.parser')
-
-            # Simple cleaning: remove script and style tags
-            for script_or_style in soup(['script', 'style']):
-                script_or_style.decompose()
-
-            # Get text and clean up whitespace
-            text = soup.get_text()
-            lines = (line.strip() for line in text.splitlines())
-            chunks = (phrase.strip() for line in lines for phrase in line.split("  "))
-            text = '\n'.join(chunk for chunk in chunks if chunk)
-
-            return text[:10000] # Limit size for performance and token management
+            service = Service(ChromeDriverManager().install())
+            driver = webdriver.Chrome(service=service, options=options)
+            driver.set_page_load_timeout(30) # Wait 30 seconds max
         except Exception as e:
-            return f"Error fetching or parsing URL {url}: {e}"
+            # IMPORTANT: Render must have the necessary system packages for Chrome/Selenium to run
+            return f"Error initializing Selenium driver: {e}. Check Render logs for driver conflicts."
+
+        # 3. Load the URL and Wait for Content
+        try:
+            driver.get(url)
+            
+            # Wait for the body tag to be present, ensuring the page has fully loaded
+            WebDriverWait(driver, 15).until(
+                EC.presence_of_element_located((By.TAG_NAME, "body"))
+            )
+            
+            # 4. Extract and Clean Text
+            text = driver.find_element(By.TAG_NAME, 'body').text
+            
+            # Basic cleaning to remove excessive whitespace and headers/footers
+            text_lines = (line.strip() for line in text.splitlines())
+            cleaned_text = '\n'.join(chunk for chunk in text_lines if chunk)
+            
+            return cleaned_text[:10000] # Limit size
+
+        except Exception as e:
+            return f"Error scraping URL {url}: {e}"
+        finally:
+            if 'driver' in locals():
+                driver.quit() # Always close the browser instance
 
 job_scraper_tool = JobDescriptionScraper()
 
@@ -185,7 +210,8 @@ revision_agent = Agent(
     role='Job-Targeted Resume Editor',
     goal='Analyze a resume against a specific job description and output a revised resume section that aligns perfectly with the job post.',
     backstory='You are a master of applicant tracking systems (ATS). Your job is to maximize keyword alignment and professional impact for a single target job.',
-    tools=[resume_reader_tool, job_scraper_tool],
+    # Ensure both tools are present for URL scraping and file reading
+    tools=[resume_reader_tool, job_scraper_tool], 
     llm=llm_quality,
     verbose=True,
     allow_delegation=False
@@ -206,6 +232,9 @@ if "resume_uploaded" not in st.session_state:
     st.session_state["resume_uploaded"] = None
 if "critique_result" not in st.session_state:
     st.session_state["critique_result"] = None
+# Initialize the session state variable for the uploaded file object
+if "resume_file_object" not in st.session_state:
+    st.session_state["resume_file_object"] = None
 
 # Pre-instantiate the chat crew (Performance optimization)
 chat_crew_fixed = Crew(
@@ -223,11 +252,13 @@ with tab1:
     st.markdown("Enter your data to receive a personalized job recommendation and preparation plan.")
 
     with st.form("career_coach_form"):
+        # --- UX IMPROVEMENT: Placeholder values ---
         student_name = st.text_input("Name", value="", placeholder="e.g., Jane Doe")
         academics = st.text_area("Academic Performance/Major", value="", placeholder="e.g., Computer Science Major, 3.8 GPA, relevant certifications")
-        courses = st.text_area("Relevant Courses/Skills", value="", placeholder="List all relevant programming languages, software, and tools (e.g., Python, SQL, Tableau, Figma), or other skills (e.g. financial modeling, financial statement analysis, accounting")
+        courses = st.text_area("Relevant Courses/Skills", value="", placeholder="List all relevant programming languages, software, and tools (e.g., Python, SQL, Tableau, Figma), or other skills (e.g. financial modeling, accounting)")
         interests = st.text_area("Personal Interests/Goals", value="", placeholder="What motivates you? e.g., Solving puzzles, building automation scripts, financial modeling")
         submitted = st.form_submit_button("Get My Personalized Plan")
+        # ... (rest of tab 1 logic is stable)
 
     if submitted:
         profile_input = f"""
@@ -239,7 +270,7 @@ with tab1:
 
         st.subheader(f"Hello, {student_name}! Agents are analyzing your profile...")
 
-        # --- Task Definitions (Moved inside the execution block to be flexible) ---
+        # --- Task Definitions ---
         recommendation_task = Task(
             description=dedent(f"""
                 Analyze the student profile data below and recommend the single best-fit job role from the knowledge base.
@@ -289,24 +320,27 @@ with tab2: # RESUME TAB
     # File Uploader
     uploaded_file = st.file_uploader("Upload your Resume (PDF or DOCX)", type=["pdf", "docx"], key="resume_uploader")
     
+    # --- FILE STATE FIX (FIX 1) ---
+    # Store the file object immediately in session state if one is present.
     if uploaded_file is not None:
         st.session_state["resume_file_object"] = uploaded_file
     elif "resume_file_object" not in st.session_state:
-        st.session_state["resume_file_object"] = None # Initialize to None if no file is uploaded yet
-    
+        # This branch ensures the variable exists at all times, preventing KeyError
+        st.session_state["resume_file_object"] = None 
+
     # Conditional Form for Critique (Always available)
     with st.container():
         st.subheader("1. AI Resume Critique")
+        # NOTE: Critique button still uses local 'uploaded_file' for simplicity/speed check
         critique_submitted = st.button("Get Resume Critique", disabled=uploaded_file is None)
 
         if uploaded_file and critique_submitted:
-            # 1. Save uploaded file temporarily
+            # ... (Critique logic remains unchanged, using local 'uploaded_file')
             with tempfile.NamedTemporaryFile(delete=False, suffix=os.path.splitext(uploaded_file.name)[1]) as tmp_file:
                 tmp_file.write(uploaded_file.getvalue())
                 tmp_file_path = tmp_file.name
 
             try:
-                # 2. Define the Critique Task
                 critique_task = Task(
                     description=dedent(f"""
                         Read the uploaded resume at '{tmp_file_path}' using the Resume Content Reader tool.
@@ -319,8 +353,7 @@ with tab2: # RESUME TAB
                     expected_output="A structured, markdown-formatted critique (Score, Actionable Feedback, ATS/Keyword Advice).",
                     agent=critique_agent
                 )
-
-                # 3. Run the Critique Crew
+                
                 critique_crew = Crew(
                     agents=[critique_agent],
                     tasks=[critique_task],
@@ -340,12 +373,8 @@ with tab2: # RESUME TAB
             except Exception as e:
                 st.error(f"An error occurred during critique: {e}")
             finally:
-                # 4. Clean up the temporary file
                 os.unlink(tmp_file_path)
 
-    st.markdown("---")
-
-    # Conditional Form for Revision (Requires file and URL)
     st.markdown("---")
 
     # Conditional Form for Revision (Requires file and URL)
@@ -356,14 +385,13 @@ with tab2: # RESUME TAB
         # Create a robust check for the URL input
         is_url_valid = bool(job_post_url and job_post_url.strip())
 
-        # *** CORRECT BUTTON LOGIC ***
-        # Checks the reliable session state variable for the file object.
+        # --- FIX 2: Check the persistent session state for the file object (Enabled Button) ---
         revision_submitted = st.form_submit_button(
             "Generate Targeted Revision", 
             disabled=st.session_state["resume_file_object"] is None or not is_url_valid 
         )
 
-        # *** CORRECT SUBMISSION LOGIC ***
+        # *** FINAL SUBMISSION LOGIC (No Duplication) ***
         # Check session state for the file before proceeding.
         if st.session_state["resume_file_object"] and is_url_valid and revision_submitted:
             
@@ -413,24 +441,25 @@ with tab2: # RESUME TAB
 
 with tab3: # Existing Chat Tab
     st.header("2. Chat with Your Coach")
+    # ... (rest of tab 3 logic is stable)
 
     if not st.session_state["plan_generated"] and st.session_state["critique_result"] is None:
         st.info("Please generate your career plan or a resume critique to activate the coach.")
 
     # Ensure critique is added to chat history once
     if st.session_state["critique_result"] and not any(m.get("role") == "critique" for m in st.session_state["chat_history"]):
-         st.session_state["chat_history"].insert(0, {"role": "critique", "content": st.session_state["critique_result"]})
+        st.session_state["chat_history"].insert(0, {"role": "critique", "content": st.session_state["critique_result"]})
 
     # Display chat messages from history
     for message in st.session_state["chat_history"]:
         if message["role"] == "plan":
-             st.info("The Coach has saved your plan for reference.")
+            st.info("The Coach has saved your plan for reference.")
         elif message["role"] == "critique":
-             st.info("The Coach has saved your resume critique for reference.")
+            st.info("The Coach has saved your resume critique for reference.")
         elif message["role"] == "assistant":
-             st.chat_message("assistant").markdown(message["content"])
+            st.chat_message("assistant").markdown(message["content"])
         elif message["role"] == "user":
-             st.chat_message("user").markdown(message["content"])
+            st.chat_message("user").markdown(message["content"])
 
     # Handle user input
     if prompt := st.chat_input("Ask your coach about your plan, resume critique, or next steps..."):
@@ -473,7 +502,4 @@ with tab3: # Existing Chat Tab
             # Add assistant response to history and display
             st.session_state["chat_history"].append({"role": "assistant", "content": response})
             with st.chat_message("assistant"):
-
                 st.markdown(response)
-
-
