@@ -107,7 +107,6 @@ class JobDescriptionScraper(BaseTool):
             driver = webdriver.Chrome(service=service, options=options)
             driver.set_page_load_timeout(30) # Wait 30 seconds max
         except Exception as e:
-            # IMPORTANT: Render must have the necessary system packages for Chrome/Selenium to run
             return f"Error initializing Selenium driver: {e}. Check Render logs for driver conflicts."
 
         # 3. Load the URL and Wait for Content
@@ -210,7 +209,6 @@ revision_agent = Agent(
     role='Job-Targeted Resume Editor',
     goal='Analyze a resume against a specific job description and output a revised resume section that aligns perfectly with the job post.',
     backstory='You are a master of applicant tracking systems (ATS). Your job is to maximize keyword alignment and professional impact for a single target job.',
-    # Ensure both tools are present for URL scraping and file reading
     tools=[resume_reader_tool, job_scraper_tool], 
     llm=llm_quality,
     verbose=True,
@@ -232,9 +230,10 @@ if "resume_uploaded" not in st.session_state:
     st.session_state["resume_uploaded"] = None
 if "critique_result" not in st.session_state:
     st.session_state["critique_result"] = None
-# Initialize the session state variable for the uploaded file object
-if "resume_file_object" not in st.session_state:
+# --- CRITICAL FIX: Initialize resume_file_object globally for button stability ---
+if "resume_file_object" not in st.session_state: 
     st.session_state["resume_file_object"] = None
+# ---------------------------------------------------------------------------------
 
 # Pre-instantiate the chat crew (Performance optimization)
 chat_crew_fixed = Crew(
@@ -284,7 +283,7 @@ with tab1:
         guidance_task = Task(
             description="""
                 Use the recommended Job Role from the first task. Use the Career_Knowledge_Retriever and Course Catalog Search tools
-                to find specific requirements, courses, and interview tips.
+                to find specific requirements, courses, and interview steps.
                 Format the output into a structured action plan.
             """,
             expected_output="A detailed, markdown-formatted career action plan with sections: Required Skills, Suggested Courses (mentioning availability), and Interview Action Plan.",
@@ -324,14 +323,11 @@ with tab2: # RESUME TAB
     # Store the file object immediately in session state if one is present.
     if uploaded_file is not None:
         st.session_state["resume_file_object"] = uploaded_file
-    elif "resume_file_object" not in st.session_state:
-        # This branch ensures the variable exists at all times, preventing KeyError
-        st.session_state["resume_file_object"] = None 
+    # NOTE: The 'elif' block was removed as the key is initialized globally. 
 
     # Conditional Form for Critique (Always available)
     with st.container():
         st.subheader("1. AI Resume Critique")
-        # NOTE: Critique button still uses local 'uploaded_file' for simplicity/speed check
         critique_submitted = st.button("Get Resume Critique", disabled=uploaded_file is None)
 
         if uploaded_file and critique_submitted:
@@ -392,7 +388,6 @@ with tab2: # RESUME TAB
         )
 
         # *** FINAL SUBMISSION LOGIC (No Duplication) ***
-        # Check session state for the file before proceeding.
         if st.session_state["resume_file_object"] and is_url_valid and revision_submitted:
             
             # IMPORTANT: Re-reference the file object from session state for processing
