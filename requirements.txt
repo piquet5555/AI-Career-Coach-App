@@ -6,6 +6,6 @@ openai==1.109.1
 pydantic==2.12.5
 pypdf==4.3.1
 python-docx==1.2.0
-selenium==4.17.2
+selenium==4.21.0
 streamlit==1.52.1
 webdriver-manager==4.0.1
