@@ -288,7 +288,12 @@ with tab2: # RESUME TAB
 
     # File Uploader
     uploaded_file = st.file_uploader("Upload your Resume (PDF or DOCX)", type=["pdf", "docx"], key="resume_uploader")
-
+    
+    if uploaded_file is not None:
+        st.session_state["resume_file_object"] = uploaded_file
+    elif "resume_file_object" not in st.session_state:
+        st.session_state["resume_file_object"] = None # Initialize to None if no file is uploaded yet
+    
     # Conditional Form for Critique (Always available)
     with st.container():
         st.subheader("1. AI Resume Critique")
@@ -341,25 +346,37 @@ with tab2: # RESUME TAB
     st.markdown("---")
 
     # Conditional Form for Revision (Requires file and URL)
+    st.markdown("---")
+
+    # Conditional Form for Revision (Requires file and URL)
     with st.form("resume_revision_form"):
         st.subheader("2. Job-Targeted Resume Revision")
         job_post_url = st.text_input("Paste Job Description URL Here:", key="job_url_input")
-        is_url_valid = bool(job_post_url and job_post_url.strip())
         
+        # Create a robust check for the URL input
+        is_url_valid = bool(job_post_url and job_post_url.strip())
+
+        # *** CORRECT BUTTON LOGIC ***
+        # Checks the reliable session state variable for the file object.
         revision_submitted = st.form_submit_button(
             "Generate Targeted Revision", 
-            disabled=uploaded_file is None or not is_url_valid # <--- Use the robust check
+            disabled=st.session_state["resume_file_object"] is None or not is_url_valid 
         )
 
-        if uploaded_file and job_post_url and revision_submitted:
+        # *** CORRECT SUBMISSION LOGIC ***
+        # Check session state for the file before proceeding.
+        if st.session_state["resume_file_object"] and is_url_valid and revision_submitted:
+            
+            # IMPORTANT: Re-reference the file object from session state for processing
+            uploaded_file_to_process = st.session_state["resume_file_object"]
+
             # 1. Save uploaded file temporarily (re-run as it's a new submission)
-            with tempfile.NamedTemporaryFile(delete=False, suffix=os.path.splitext(uploaded_file.name)[1]) as tmp_file:
-                tmp_file.write(uploaded_file.getvalue())
+            with tempfile.NamedTemporaryFile(delete=False, suffix=os.path.splitext(uploaded_file_to_process.name)[1]) as tmp_file:
+                tmp_file.write(uploaded_file_to_process.getvalue())
                 tmp_file_path = tmp_file.name
 
             try:
                 # 2. Define the Revision Task
-                # 🎯 FIX: Explicitly tell the agent to use the scraper on the URL input
                 revision_task = Task(
                     description=dedent(f"""
                         1. Use the Job Description Scraper tool on the URL provided: '{job_post_url}'.
@@ -458,4 +475,5 @@ with tab3: # Existing Chat Tab
             with st.chat_message("assistant"):
 
                 st.markdown(response)
+
 
