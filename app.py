@@ -344,7 +344,12 @@ with tab2: # RESUME TAB
     with st.form("resume_revision_form"):
         st.subheader("2. Job-Targeted Resume Revision")
         job_post_url = st.text_input("Paste Job Description URL Here:", key="job_url_input")
-        revision_submitted = st.form_submit_button("Generate Targeted Revision", disabled=uploaded_file is None or not job_post_url)
+        is_url_valid = bool(job_post_url and job_post_url.strip())
+        
+        revision_submitted = st.form_submit_button(
+            "Generate Targeted Revision", 
+            disabled=uploaded_file is None or not is_url_valid # <--- Use the robust check
+        )
 
         if uploaded_file and job_post_url and revision_submitted:
             # 1. Save uploaded file temporarily (re-run as it's a new submission)
@@ -453,3 +458,4 @@ with tab3: # Existing Chat Tab
             with st.chat_message("assistant"):
 
                 st.markdown(response)
+
