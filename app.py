@@ -103,7 +103,8 @@ class JobDescriptionScraper(BaseTool):
         
         # 2. Initialize the WebDriver (Automatically manages the driver binary)
         try:
-            service = Service(ChromeDriverManager().install())
+            options.binary_location = '/usr/bin/chromium' 
+            driver = webdriver.Chrome(options=options) # No service needed when binary location is set
             driver = webdriver.Chrome(service=service, options=options)
             driver.set_page_load_timeout(30) # Wait 30 seconds max
         except Exception as e:
@@ -498,3 +499,4 @@ with tab3: # Existing Chat Tab
             st.session_state["chat_history"].append({"role": "assistant", "content": response})
             with st.chat_message("assistant"):
                 st.markdown(response)
+
